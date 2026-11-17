@@ -22,23 +22,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     const unsubscribe = authService.onAuthStateChanged(async (currentUser) => {
-      setUser(currentUser);
-      
-      // Initialize Firestore collections AFTER user is authenticated
+      if (!isMounted) return;
+
       if (currentUser) {
+        setUser(currentUser);
         try {
           await initializeFirestoreCollections();
           await checkCollectionStatus();
         } catch (err) {
-          console.error('Failed to initialize Firestore:', err);
+          console.warn('Firestore collections init:', err);
+        }
+      } else {
+        // In personal app mode, automatically sign in anonymously in the background so Firestore sync functions seamlessly
+        try {
+          const anonUser = await authService.signInAnonymously();
+          if (isMounted && anonUser) {
+            setUser(anonUser);
+          }
+        } catch (err) {
+          console.warn('Personal local mode (anonymous auth offline):', err);
+          if (isMounted) setUser(null);
         }
       }
       
-      setLoading(false);
+      if (isMounted) setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const signup = async (email: string, password: string) => {

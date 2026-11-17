@@ -7,7 +7,6 @@ import { ActionButton, Button } from "./ui/buttons";
 import { MiniStat } from "./ui/progress";
 import { InputField } from "./ui/forms";
 import { storage } from "../../config/storage";
-import { useAuth } from "../../config/auth-context";
 import { UserProfile } from "../types";
 import { calculateRemainingCarbs } from "../utils/nutrition-calculations";
 import { 
@@ -16,7 +15,6 @@ import {
   Edit, 
   Trophy, 
   Trash2, 
-  LogOut, 
   Target, 
   Flame, 
   Beef, 
@@ -30,12 +28,11 @@ import {
 
 export function Settings() {
   const navigate = useNavigate();
-  const { signout } = useAuth();
   const [state, setState] = useState(() => storage.get());
   const [showEditTargets, setShowEditTargets] = useState(false);
 
   const profile = state?.profile;
-  const profileName = profile?.name || "User";
+  const profileName = profile?.name || "Athlete";
 
   // Targets Editor state
   const [targetCalories, setTargetCalories] = useState<number>(profile?.targetCalories || 2100);
@@ -93,20 +90,11 @@ export function Settings() {
   };
 
   const handleResetData = () => {
-    if (confirm("Are you sure you want to reset all data? This will clear local cache and start fresh.")) {
-      localStorage.clear();
-      navigate("/onboarding");
-    }
-  };
-
-  const handleSignOut = async () => {
-    if (confirm("Are you sure you want to sign out?")) {
-      try {
-        await signout();
-        navigate("/signin");
-      } catch (error) {
-        console.error("Sign out error:", error);
-      }
+    if (confirm("Reset personal fitness data to recommended defaults? This will refresh your targets and meal/exercise libraries.")) {
+      const freshState = storage.createInitialState();
+      storage.save(freshState);
+      setState(freshState);
+      alert("Personal fitness data refreshed to defaults!");
     }
   };
 
@@ -118,7 +106,7 @@ export function Settings() {
       <PageContainer padding>
         <PageHeader 
           title="Settings" 
-          subtitle="Configure targets & manage account"
+          subtitle="Configure targets & personal preferences"
           icon={SettingsIcon} 
         />
 
@@ -207,16 +195,8 @@ export function Settings() {
           <ActionButton
             icon={Trash2}
             label="Reset Local Data"
-            description="Clear cache and re-sync"
+            description="Clear cache and reload personal defaults"
             onClick={handleResetData}
-            variant="danger"
-          />
-
-          <ActionButton
-            icon={LogOut}
-            label="Sign Out"
-            description="Log out of authenticated Firebase account"
-            onClick={handleSignOut}
             variant="danger"
           />
         </motion.div>

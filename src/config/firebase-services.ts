@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInAnonymously as firebaseSignInAnonymously,
   signOut,
   onAuthStateChanged,
   User,
@@ -54,6 +55,19 @@ export const authService = {
       return userCredential.user;
     } catch (error) {
       throw error;
+    }
+  },
+
+  async signInAnonymously() {
+    try {
+      const userCredential = await firebaseSignInAnonymously(auth);
+      if (userCredential.user) {
+        await createUserDocument(userCredential.user.uid, 'personal-athlete@local');
+      }
+      return userCredential.user;
+    } catch (error) {
+      console.warn('Anonymous sign-in unavailable or offline, proceeding locally:', error);
+      return null;
     }
   },
 
