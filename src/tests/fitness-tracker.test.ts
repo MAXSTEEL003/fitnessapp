@@ -174,6 +174,136 @@ assert(
   'Historical snapshot retains original logged calories (217.5 kcal) even after library item is updated'
 );
 
+console.log('\n--- 6. Testing Master Food & Exercise Libraries ---');
+
+import { MASTER_FOODS, MASTER_RECIPES } from '../config/master-food-library.ts';
+import { MASTER_EXERCISES } from '../config/master-exercise-library.ts';
+import { seedMasterLibraries } from '../config/storage.ts';
+import { calculateMetCalories, calculateRecipeNutrition } from '../app/utils/nutrition-calculations.ts';
+import { AppState } from '../app/types.ts';
+
+// Test 14: Master Food Library Population & Dietary Preferences
+assert(
+  MASTER_FOODS.length >= 35,
+  `Master Food Library is populated with comprehensive database (${MASTER_FOODS.length} foods)`
+);
+
+// Verify dietary preferences: NO soy, NO tofu, NO whole eggs
+const prohibitedFoods = MASTER_FOODS.filter((f) => {
+  const name = f.name.toLowerCase();
+  const notes = (f.notes || '').toLowerCase();
+  return (
+    name.includes('tofu') ||
+    name.includes('soya') ||
+    name.includes('soy ') ||
+    name.includes('edamame') ||
+    (name.includes('egg') && !name.includes('egg white'))
+  );
+});
+assert(
+  prohibitedFoods.length === 0,
+  `Dietary restriction compliance verified: zero soy, tofu or whole eggs in database (prohibited: ${prohibitedFoods.length})`
+);
+
+// Verify egg whites and paneer are present
+const hasEggWhites = MASTER_FOODS.some((f) => f.name.toLowerCase().includes('egg white'));
+const hasLowFatPaneer = MASTER_FOODS.some((f) => f.name.toLowerCase().includes('low-fat paneer'));
+const hasWhey = MASTER_FOODS.some((f) => f.name.toLowerCase().includes('whey protein'));
+const hasChapati = MASTER_FOODS.some((f) => f.name.toLowerCase().includes('chapati'));
+
+assert(
+  hasEggWhites && hasLowFatPaneer && hasWhey && hasChapati,
+  'Core Indian vegetarian & protein staples (egg whites, paneer, whey, chapati) present in Food Library'
+);
+
+// Test 15: Exact ACSM MET Formula verification
+// Formula: Calories = MET × 3.5 × weight / 200 × duration
+// For 82kg user:
+// Walking (MET 3.5, 30 min): (3.5 * 3.5 * 82 / 200) * 30 = 150.675 -> 151 kcal
+const walking82kg = calculateMetCalories(3.5, 82, 30);
+assert(
+  walking82kg === 151,
+  `ACSM MET formula produces exact 151 kcal for 82kg walking 30 min at MET 3.5 (got ${walking82kg})`
+);
+
+// Jogging (MET 7.0, 20 min): (7.0 * 3.5 * 82 / 200) * 20 = 200.9 -> 201 kcal
+const jogging82kg = calculateMetCalories(7.0, 82, 20);
+assert(
+  jogging82kg === 201,
+  `ACSM MET formula produces exact 201 kcal for 82kg jogging 20 min at MET 7.0 (got ${jogging82kg})`
+);
+
+// Weight Training (MET 5.0, 45 min): (5.0 * 3.5 * 82 / 200) * 45 = 322.875 -> 323 kcal
+const weights82kg = calculateMetCalories(5.0, 82, 45);
+assert(
+  weights82kg === 323,
+  `ACSM MET formula produces exact 323 kcal for 82kg weight training 45 min at MET 5.0 (got ${weights82kg})`
+);
+
+console.log('\n--- 7. Testing Recipe Builder & Composite Nutrition Formulas ---');
+
+// Test 16: Recipe nutrition summation and per-serving calculation
+const sampleRecipeIngredients = [
+  { foodId: 'food_low_fat_paneer', name: 'Low-fat paneer', calories: 290, protein: 40, carbs: 10, fats: 12 },
+  { foodId: 'food_tomato', name: 'Tomato', calories: 18, protein: 0.9, carbs: 3.9, fats: 0.2 },
+  { foodId: 'food_ghee', name: 'Ghee', calories: 72, protein: 0, carbs: 0, fats: 8 },
+];
+const recipeNutrition = calculateRecipeNutrition(sampleRecipeIngredients, 2);
+
+assert(
+  recipeNutrition.totalNutrition.calories === 380 &&
+  recipeNutrition.totalNutrition.protein === 40.9 &&
+  recipeNutrition.perServingNutrition.calories === 190 &&
+  recipeNutrition.perServingNutrition.protein === 20.5,
+  `Recipe Builder accurately calculates total and per-serving macros for 2 servings (Per serv: ${JSON.stringify(recipeNutrition.perServingNutrition)})`
+);
+
+console.log('\n--- 8. Testing Safe Deduplicated Master Seeding ---');
+
+// Test 17: Deduplicated seeding into AppState
+const testState: AppState = {
+  profile: null,
+  records: {},
+  currentStreak: 0,
+  longestStreak: 0,
+  mealPlans: {},
+  gymRoutine: {},
+  workoutHistory: {},
+  foods: {},
+  recipes: {},
+  exercises: {},
+  dailyLogs: {},
+  measurements: {},
+};
+
+// First run: should populate and return true
+const firstSeedResult = seedMasterLibraries(testState);
+const foodsCountAfterFirst = Object.keys(testState.foods!).length;
+const recipesCountAfterFirst = Object.keys(testState.recipes!).length;
+const exercisesCountAfterFirst = Object.keys(testState.exercises!).length;
+
+assert(
+  firstSeedResult === true && foodsCountAfterFirst >= 35 && recipesCountAfterFirst >= 5 && exercisesCountAfterFirst >= 15,
+  `Initial seed populates all master libraries (foods: ${foodsCountAfterFirst}, recipes: ${recipesCountAfterFirst}, exercises: ${exercisesCountAfterFirst})`
+);
+
+// Second run: should NOT modify or duplicate and return false
+const secondSeedResult = seedMasterLibraries(testState);
+assert(
+  secondSeedResult === false &&
+  Object.keys(testState.foods!).length === foodsCountAfterFirst &&
+  Object.keys(testState.recipes!).length === recipesCountAfterFirst,
+  'Repeated seed call is safely idempotent and does NOT duplicate existing IDs'
+);
+
+// User customization protection
+testState.foods!['food_low_fat_paneer'].notes = 'Custom user modification';
+seedMasterLibraries(testState);
+assert(
+  testState.foods!['food_low_fat_paneer'].notes === 'Custom user modification',
+  'User-customized library items are never overwritten during subsequent seed checks'
+);
+
 console.log(`\n======================================================`);
 console.log(`Test Results: ${passedTests}/${totalTests} tests passed (${Math.round((passedTests/totalTests)*100)}%)`);
 console.log(`======================================================\n`);

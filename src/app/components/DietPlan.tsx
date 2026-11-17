@@ -196,7 +196,16 @@ export function DietPlan() {
     let updatedCarbs = Number(editForm.carbs);
     let updatedFats = Number(editForm.fats);
 
-    if (editingEntry.foodId && editingEntry.baseServingSize && editForm.quantity !== editingEntry.quantity) {
+    if (editingEntry.recipeId && editForm.quantity !== editingEntry.quantity) {
+      const recipe = storage.getRecipeById(editingEntry.recipeId);
+      if (recipe) {
+        const qty = Number(editForm.quantity) || 1;
+        updatedCalories = round(recipe.perServingNutrition.calories * qty, 1);
+        updatedProtein = round(recipe.perServingNutrition.protein * qty, 1);
+        updatedCarbs = round(recipe.perServingNutrition.carbs * qty, 1);
+        updatedFats = round(recipe.perServingNutrition.fats * qty, 1);
+      }
+    } else if (editingEntry.foodId && editingEntry.baseServingSize && editForm.quantity !== editingEntry.quantity) {
       const baseFood = storage.getFoodById(editingEntry.foodId);
       if (baseFood) {
         const recalc = calculateFoodNutrition(editForm.quantity, baseFood.servingSize, {

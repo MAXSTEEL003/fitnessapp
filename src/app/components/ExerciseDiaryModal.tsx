@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ExerciseLibraryItem, ExerciseDiaryEntry, ExerciseType, ExerciseIntensity } from "../types";
 import { storage } from "../../config/storage";
-import { estimateExerciseCalories, round } from "../utils/nutrition-calculations";
+import { estimateExerciseCalories, calculateMetCalories, MET_TABLE, round } from "../utils/nutrition-calculations";
 import { Button } from "./ui/buttons";
 import { InputField } from "./ui/forms";
 import { 
@@ -18,8 +18,20 @@ import {
   X, 
   Check, 
   Sparkles,
-  Zap
+  Zap,
+  Activity,
+  Calculator
 } from "lucide-react";
+
+const EXERCISE_CATEGORIES = [
+  'All',
+  'Strength Training',
+  'Cardio',
+  'Walking',
+  'Daily Activities',
+  'Core Training',
+  'Sports & Recreation',
+];
 
 interface ExerciseDiaryModalProps {
   isOpen: boolean;
@@ -36,6 +48,7 @@ export function ExerciseDiaryModal({
 }: ExerciseDiaryModalProps) {
   const [exercises, setExercises] = useState<ExerciseLibraryItem[]>(() => storage.getExercises());
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
 
   // 'browse' | 'create' | 'edit' | 'logEntry'
@@ -46,10 +59,11 @@ export function ExerciseDiaryModal({
   const [formData, setFormData] = useState({
     name: "",
     type: "fixed" as ExerciseType,
-    category: "Strength",
+    category: "Strength Training",
     defaultCalories: 200,
     defaultDuration: 30,
     defaultIntensity: "moderate" as ExerciseIntensity,
+    met: 5.0,
     notes: "",
   });
 
@@ -58,11 +72,12 @@ export function ExerciseDiaryModal({
   const [logName, setLogName] = useState("");
   const [logDuration, setLogDuration] = useState<number>(30);
   const [logIntensity, setLogIntensity] = useState<ExerciseIntensity>("moderate");
+  const [logMet, setLogMet] = useState<number>(3.5);
   const [logCalories, setLogCalories] = useState<number>(200);
   const [saveToLibrary, setSaveToLibrary] = useState(false);
 
   const profile = storage.get()?.profile;
-  const userWeight = profile?.currentWeight || 75;
+  const userWeight = profile?.currentWeight || 82;
 
   const refreshExercises = () => {
     setExercises(storage.getExercises());
@@ -72,10 +87,11 @@ export function ExerciseDiaryModal({
     setFormData({
       name: "",
       type: "fixed",
-      category: "Cardio",
+      category: "Strength Training",
       defaultCalories: 150,
       defaultDuration: 30,
       defaultIntensity: "moderate",
+      met: 5.0,
       notes: "",
     });
     setModalMode('create');
@@ -86,10 +102,11 @@ export function ExerciseDiaryModal({
     setFormData({
       name: ex.name,
       type: ex.type,
-      category: ex.category || "Cardio",
+      category: ex.category || "Strength Training",
       defaultCalories: ex.defaultCalories || 150,
       defaultDuration: ex.defaultDuration || 30,
       defaultIntensity: ex.defaultIntensity || "moderate",
+      met: ex.met || 4.5,
       notes: ex.notes || "",
     });
     setModalMode('edit');
@@ -108,6 +125,7 @@ export function ExerciseDiaryModal({
         defaultCalories: formData.type === 'fixed' ? Number(formData.defaultCalories) || 0 : undefined,
         defaultDuration: Number(formData.defaultDuration) || 30,
         defaultIntensity: formData.defaultIntensity,
+        met: Number(formData.met) || 3.5,
         notes: formData.notes.trim() || undefined,
       });
     } else {
@@ -119,6 +137,7 @@ export function ExerciseDiaryModal({
         defaultCalories: formData.type === 'fixed' ? Number(formData.defaultCalories) || 0 : undefined,
         defaultDuration: Number(formData.defaultDuration) || 30,
         defaultIntensity: formData.defaultIntensity,
+        met: Number(formData.met) || 3.5,
         notes: formData.notes.trim() || undefined,
         createdAt: new Date().toISOString(),
       };
@@ -147,18 +166,40 @@ export function ExerciseDiaryModal({
     refreshExercises();
   };
 
+  const getMetForActivity = (name: string, fallbackMet?: number): number => {
+    if (fallbackMet && fallbackMet > 0) return fallbackMet;
+    const lower = name.toLowerCase();
+    if (lower.includes('running')) return 9.8;
+    if (lower.includes('jogging')) return 7.0;
+    if (lower.includes('cycling') || lower.includes('bike')) return 6.8;
+    if (lower.includes('stair')) return 8.0;
+    if (lower.includes('incline')) return 5.3;
+    if (lower.includes('rowing')) return 7.0;
+    if (lower.includes('hiking')) return 6.0;
+    if (lower.includes('weight') || lower.includes('strength') || lower.includes('gym')) return 5.0;
+    if (lower.includes('calisthenic')) return 4.0;
+    if (lower.includes('abs') || lower.includes('core')) return 4.0;
+    if (lower.includes('brisk')) return 4.3;
+    if (lower.includes('casual')) return 2.8;
+    return 3.5;
+  };
+
   const handleSelectToLog = (ex: ExerciseLibraryItem) => {
     setActiveExercise(ex);
     setLogName(ex.name);
     setLogMethod(ex.type);
-    setLogDuration(ex.defaultDuration || 30);
+    const duration = ex.defaultDuration || 30;
+    setLogDuration(duration);
     setLogIntensity(ex.defaultIntensity || 'moderate');
     
+    const met = getMetForActivity(ex.name, ex.met);
+    setLogMet(met);
+
     if (ex.type === 'fixed') {
       setLogCalories(ex.defaultCalories || 150);
     } else {
-      const estimated = estimateExerciseCalories(ex.name, ex.defaultDuration || 30, ex.defaultIntensity || 'moderate', userWeight);
-      setLogCalories(estimated);
+      const calculated = calculateMetCalories(met, userWeight, duration);
+      setLogCalories(calculated);
     }
     setSaveToLibrary(false);
     setModalMode('logEntry');
@@ -170,18 +211,24 @@ export function ExerciseDiaryModal({
     setLogMethod("fixed");
     setLogDuration(30);
     setLogIntensity("moderate");
+    setLogMet(3.5);
     setLogCalories(150);
     setSaveToLibrary(false);
     setModalMode('logEntry');
   };
 
-  // Recalculate duration-based calories when duration or intensity changes
-  const handleDurationOrIntensityChange = (newDuration: number, newIntensity: ExerciseIntensity) => {
-    setLogDuration(newDuration);
+  // Recalculate duration-based calories using exact MET formula:
+  // Calories = MET × 3.5 × body weight in kg / 200 × duration in minutes
+  const handleDurationOrIntensityChange = (newDuration: number, newIntensity: ExerciseIntensity, newMet?: number) => {
+    const duration = Math.max(0, newDuration);
+    setLogDuration(duration);
     setLogIntensity(newIntensity);
+    const currentMet = newMet !== undefined ? newMet : logMet;
+    if (newMet !== undefined) setLogMet(newMet);
+
     if (logMethod === 'duration') {
-      const est = estimateExerciseCalories(logName || 'Exercise', newDuration, newIntensity, userWeight);
-      setLogCalories(est);
+      const calculated = calculateMetCalories(currentMet, userWeight, duration);
+      setLogCalories(calculated);
     }
   };
 
@@ -200,6 +247,7 @@ export function ExerciseDiaryModal({
         defaultCalories: logMethod === 'fixed' ? logCalories : undefined,
         defaultDuration: logDuration,
         defaultIntensity: logIntensity,
+        met: logMet,
         createdAt: new Date().toISOString(),
       };
       storage.saveExercise(newLibItem);
@@ -213,6 +261,8 @@ export function ExerciseDiaryModal({
       type: logMethod,
       duration: logDuration > 0 ? logDuration : undefined,
       intensity: logMethod === 'duration' ? logIntensity : undefined,
+      met: logMethod === 'duration' ? logMet : undefined,
+      calculationMethod: logMethod,
       calories: Math.max(0, Number(logCalories) || 0),
       time: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
     });
@@ -223,9 +273,13 @@ export function ExerciseDiaryModal({
 
   const filteredExercises = exercises
     .filter((ex) => {
-      const matchesSearch = ex.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = ex.name.toLowerCase().includes(q) ||
+        (ex.category && ex.category.toLowerCase().includes(q));
       const matchesFav = !showOnlyFavorites || ex.isFavorite;
-      return matchesSearch && matchesFav;
+      const matchesCategory = selectedCategory === "All" ||
+        ex.category?.toLowerCase() === selectedCategory.toLowerCase();
+      return matchesSearch && matchesFav && matchesCategory;
     })
     .sort((a, b) => {
       if (a.isFavorite && !b.isFavorite) return -1;
@@ -312,6 +366,24 @@ export function ExerciseDiaryModal({
                   >
                     New
                   </Button>
+                </div>
+
+                {/* Category Filters */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+                  {EXERCISE_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors shrink-0 ${
+                        selectedCategory === cat
+                          ? "bg-purple-600 border-purple-600 text-white font-semibold shadow-sm"
+                          : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="flex items-center justify-between pb-1">
@@ -478,7 +550,45 @@ export function ExerciseDiaryModal({
 
                 {/* Duration & Intensity for duration-based */}
                 {logMethod === 'duration' && (
-                  <div className="space-y-3 bg-purple-50/50 dark:bg-purple-900/10 p-3.5 rounded-2xl border border-purple-200/50 dark:border-purple-800/40">
+                  <div className="space-y-3.5 bg-purple-50/50 dark:bg-purple-950/20 p-4 rounded-2xl border border-purple-200/50 dark:border-purple-800/40">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Activity className="size-3.5" />
+                        MET Formula Calculator
+                      </span>
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Body Weight: <strong className="text-gray-900 dark:text-white">{userWeight} kg</strong>
+                      </span>
+                    </div>
+
+                    {/* MET Activity Preset Select */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                        Activity MET Rating
+                      </label>
+                      <select
+                        value={logMet}
+                        onChange={(e) => {
+                          const newMet = Number(e.target.value);
+                          handleDurationOrIntensityChange(logDuration, logIntensity, newMet);
+                        }}
+                        className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="3.5">Walking (moderate 4.8 km/h) — MET 3.5</option>
+                        <option value="4.3">Walking (brisk 6 km/h) — MET 4.3</option>
+                        <option value="5.3">Incline walking — MET 5.3</option>
+                        <option value="7.0">Jogging (7-8 km/h) — MET 7.0</option>
+                        <option value="9.8">Running (9.5+ km/h) — MET 9.8</option>
+                        <option value="6.8">Cycling (moderate) — MET 6.8</option>
+                        <option value="5.0">Weight training (Hypertrophy) — MET 5.0</option>
+                        <option value="4.0">Calisthenics & Core — MET 4.0</option>
+                        <option value="8.0">Stair climbing — MET 8.0</option>
+                        <option value="7.0">Rowing machine — MET 7.0</option>
+                        <option value="2.8">Casual walking — MET 2.8</option>
+                        <option value="6.0">Hiking — MET 6.0</option>
+                      </select>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
@@ -495,22 +605,30 @@ export function ExerciseDiaryModal({
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                          Intensity
+                          Intensity Preset
                         </label>
                         <select
                           value={logIntensity}
                           onChange={(e) => handleDurationOrIntensityChange(logDuration, e.target.value as ExerciseIntensity)}
                           className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-sm font-semibold text-gray-900 dark:text-white"
                         >
-                          <option value="low">Low (Light pace)</option>
-                          <option value="moderate">Moderate (Standard)</option>
-                          <option value="high">High (Vigorous)</option>
+                          <option value="low">Low Intensity</option>
+                          <option value="moderate">Moderate Intensity</option>
+                          <option value="high">High Intensity</option>
                         </select>
                       </div>
                     </div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      Estimated using MET values for a {userWeight}kg body weight.
-                    </p>
+
+                    {/* Exact ACSM Formula Visualizer */}
+                    <div className="p-3 bg-purple-100/60 dark:bg-purple-900/30 rounded-xl border border-purple-300/40 dark:border-purple-700/40 text-[11px] space-y-1">
+                      <div className="font-semibold text-purple-900 dark:text-purple-200 flex items-center gap-1">
+                        <Calculator className="size-3.5" />
+                        ACSM Formula: MET × 3.5 × weight / 200 × duration
+                      </div>
+                      <div className="text-purple-700 dark:text-purple-300 font-mono text-xs">
+                        {logMet} × 3.5 × {userWeight}kg / 200 × {logDuration}m = <strong>{calculateMetCalories(logMet, userWeight, logDuration)} kcal</strong>
+                      </div>
+                    </div>
                   </div>
                 )}
 

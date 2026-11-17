@@ -9,12 +9,14 @@ export interface UserProfile {
   targetWater: number;
   wakeUpTime: string;
   // Enhanced configurable fitness & body-recomp targets
+  height?: number;              // cm (default 168)
+  age?: number;                 // years (default 23)
   targetCalories?: number;      // default 2,100 kcal
   targetFats?: number;          // default 60 g
   targetCarbs?: number;         // default 240 g (or calculated)
   currentWaist?: number;        // cm
   goalWaist?: number;           // cm
-  currentBodyFat?: number;      // %
+  currentBodyFat?: number;      // % (default 30%)
 }
 
 export interface DailyChecklist {
@@ -42,15 +44,19 @@ export interface DayRecord {
 export type MealCategory = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snacks';
 
 export type FoodCategory = 
+  | 'Protein'
   | 'Dairy'
+  | 'Carbohydrates'
+  | 'Fruits'
+  | 'Vegetables'
+  | 'Fats & Oils'
+  | 'Indian Meals'
+  | 'Snacks'
+  | 'Supplements'
   | 'Meat & Poultry'
   | 'Fish & Seafood'
   | 'Grains & Cereals'
-  | 'Vegetables'
-  | 'Fruits'
   | 'Legumes & Pulses'
-  | 'Supplements'
-  | 'Snacks'
   | 'Beverages'
   | 'Other';
 
@@ -59,7 +65,7 @@ export interface FoodLibraryItem {
   name: string;
   category: FoodCategory;
   servingSize: number;
-  servingUnit: string;        // 'g', 'ml', 'serving', 'piece', 'scoop', etc.
+  servingUnit: string;        // 'g', 'ml', 'serving', 'piece', 'scoop', 'tsp', etc.
   calories: number;           // per servingSize
   protein: number;            // per servingSize
   carbs: number;              // per servingSize
@@ -70,9 +76,45 @@ export interface FoodLibraryItem {
   lastUsedAt?: string;
 }
 
+export interface RecipeIngredient {
+  foodId?: string;
+  name: string;
+  quantity: number;
+  servingUnit: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  category: 'Indian Meals' | FoodCategory;
+  servings: number;
+  totalNutrition: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+  };
+  perServingNutrition: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+  };
+  ingredients: RecipeIngredient[];
+  notes?: string;
+  isFavorite?: boolean;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export interface FoodDiaryEntry {
   id: string;
-  foodId?: string;            // Link to library item if created from library
+  foodId?: string;            // Link to library item or recipe if created from library
+  recipeId?: string;          // Link to recipe if logged from recipe builder
   name: string;
   mealCategory: MealCategory;
   quantity: number;
@@ -91,15 +133,25 @@ export interface FoodDiaryEntry {
 
 export type ExerciseType = 'fixed' | 'duration';
 export type ExerciseIntensity = 'low' | 'moderate' | 'high';
+export type ExerciseCategory = 
+  | 'Strength Training'
+  | 'Cardio'
+  | 'Walking'
+  | 'Daily Activities'
+  | 'Core Training'
+  | 'Sports & Recreation'
+  | 'Strength'
+  | 'Other';
 
 export interface ExerciseLibraryItem {
   id: string;
   name: string;
   type: ExerciseType;
-  category?: string;
+  category?: ExerciseCategory | string;
   defaultCalories?: number;   // For fixed calorie estimate
   defaultDuration?: number;   // Duration in minutes
   defaultIntensity?: ExerciseIntensity;
+  met?: number;               // MET (Metabolic Equivalent of Task) value
   notes?: string;
   isFavorite?: boolean;
   createdAt: string;
@@ -113,7 +165,9 @@ export interface ExerciseDiaryEntry {
   type: ExerciseType;
   duration?: number;          // minutes
   intensity?: ExerciseIntensity;
+  met?: number;               // MET value used for calculation
   calories: number;           // Estimated calories snapshot
+  calculationMethod?: 'fixed' | 'duration';
   time?: string;
   date: string;               // YYYY-MM-DD
   loggedAt: string;
@@ -215,6 +269,7 @@ export interface AppState {
   
   // Enhanced data stores
   foods?: Record<string, FoodLibraryItem>;
+  recipes?: Record<string, Recipe>;
   exercises?: Record<string, ExerciseLibraryItem>;
   dailyLogs?: Record<string, DailyLog>;
   measurements?: Record<string, MeasurementRecord>;

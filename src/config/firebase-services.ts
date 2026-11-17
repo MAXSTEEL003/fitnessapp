@@ -27,7 +27,8 @@ import {
   FoodLibraryItem, 
   ExerciseLibraryItem, 
   DailyLog, 
-  MeasurementRecord 
+  MeasurementRecord,
+  Recipe
 } from '../app/types';
 import { createUserDocument } from './firestore-init';
 
@@ -121,6 +122,15 @@ export const firestoreService = {
             data.exercises = data.exercises || {};
             exercisesSnap.forEach((docItem) => {
               data.exercises![docItem.id] = docItem.data() as ExerciseLibraryItem;
+            });
+          }
+
+          const recipesRef = collection(db, 'users', userId, 'recipes');
+          const recipesSnap = await getDocs(recipesRef);
+          if (!recipesSnap.empty) {
+            data.recipes = data.recipes || {};
+            recipesSnap.forEach((docItem) => {
+              data.recipes![docItem.id] = docItem.data() as Recipe;
             });
           }
 
@@ -263,6 +273,30 @@ export const firestoreService = {
       await deleteDoc(exDocRef);
     } catch (error) {
       console.error('Error deleting exercise item:', error);
+      throw error;
+    }
+  },
+
+  // Subcollection: Recipe Library
+  async saveRecipe(userId: string, recipe: Recipe): Promise<void> {
+    try {
+      const recDocRef = doc(db, 'users', userId, 'recipes', recipe.id);
+      await setDoc(recDocRef, {
+        ...recipe,
+        updatedAt: Timestamp.now(),
+      }, { merge: true });
+    } catch (error) {
+      console.error('Error saving recipe:', error);
+      throw error;
+    }
+  },
+
+  async deleteRecipe(userId: string, recipeId: string): Promise<void> {
+    try {
+      const recDocRef = doc(db, 'users', userId, 'recipes', recipeId);
+      await deleteDoc(recDocRef);
+    } catch (error) {
+      console.error('Error deleting recipe:', error);
       throw error;
     }
   },

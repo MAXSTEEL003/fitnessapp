@@ -13,7 +13,8 @@ import {
   ExerciseDiaryEntry,
   DailyLog,
   MeasurementRecord,
-  MealCategory
+  MealCategory,
+  Recipe
 } from '../app/types';
 import { firestoreService } from './firebase-services';
 import { auth } from './firebase';
@@ -24,6 +25,8 @@ import {
   calculateRemainingCarbs,
   round
 } from '../app/utils/nutrition-calculations';
+import { MASTER_FOODS, MASTER_RECIPES } from './master-food-library';
+import { MASTER_EXERCISES } from './master-exercise-library';
 
 const STORAGE_KEY = 'fitness-shred-data';
 
@@ -35,89 +38,62 @@ export const DEFAULT_TARGETS = {
   carbs: 240, // (2100 - (150*4 + 60*9)) / 4 = 240g
 };
 
-export const INITIAL_SAMPLE_FOOD: FoodLibraryItem = {
-  id: 'food_low_fat_paneer',
-  name: 'Low-fat paneer',
-  category: 'Dairy',
-  servingSize: 100,
-  servingUnit: 'g',
-  calories: 145,
-  protein: 20,
-  carbs: 5,
-  fats: 6,
-  notes: 'Rich in slow-digesting casein protein, ideal for fat loss & muscle retention',
-  isFavorite: true,
-  createdAt: '2026-01-01T00:00:00.000Z',
+export const DEFAULT_USER_PROFILE: UserProfile = {
+  name: 'Athlete',
+  startWeight: 82,
+  currentWeight: 82,
+  goalWeight: 75,
+  height: 168,
+  age: 23,
+  currentBodyFat: 30,
+  startDate: '2026-01-01',
+  targetSteps: 10000,
+  targetProtein: 150,
+  targetCalories: 2100,
+  targetFats: 60,
+  targetCarbs: 240,
+  targetWater: 3500,
+  wakeUpTime: '06:00',
+  currentWaist: 92,
+  goalWaist: 82,
 };
 
-export const INITIAL_SAMPLE_EXERCISES: ExerciseLibraryItem[] = [
-  {
-    id: 'ex_weight_training',
-    name: 'Weight training',
-    type: 'fixed',
-    category: 'Strength',
-    defaultCalories: 250,
-    defaultDuration: 45,
-    notes: 'Resistance hypertrophy / strength training session',
-    isFavorite: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'ex_treadmill',
-    name: 'Treadmill',
-    type: 'fixed',
-    category: 'Cardio',
-    defaultCalories: 100,
-    defaultDuration: 20,
-    notes: 'Incline treadmill walk or jog',
-    isFavorite: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'ex_cycling',
-    name: 'Cycling',
-    type: 'fixed',
-    category: 'Cardio',
-    defaultCalories: 150,
-    defaultDuration: 30,
-    notes: 'Stationary or outdoor cycling',
-    isFavorite: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'ex_evening_walk',
-    name: 'Evening walk',
-    type: 'fixed',
-    category: 'Cardio',
-    defaultCalories: 100,
-    defaultDuration: 30,
-    notes: 'Brisk evening walk for daily step count',
-    isFavorite: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'ex_abs_workout',
-    name: 'Abs workout',
-    type: 'fixed',
-    category: 'Strength',
-    defaultCalories: 60,
-    defaultDuration: 15,
-    notes: 'Core conditioning circuit',
-    isFavorite: true,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'ex_walking_duration',
-    name: 'Walking (Duration-based)',
-    type: 'duration',
-    category: 'Cardio',
-    defaultDuration: 30,
-    defaultIntensity: 'moderate',
-    notes: 'Estimated ~4 kcal/min depending on pace',
-    isFavorite: false,
-    createdAt: '2026-01-01T00:00:00.000Z',
-  },
-];
+export const INITIAL_SAMPLE_FOOD = MASTER_FOODS[0];
+export const INITIAL_SAMPLE_EXERCISES = MASTER_EXERCISES;
+
+/**
+ * Deduplicated Seeding of Master Foods, Recipes, and Exercises.
+ * Preserves existing user entries and edits; never duplicates IDs.
+ */
+export function seedMasterLibraries(state: AppState): boolean {
+  let changed = false;
+  if (!state.foods) state.foods = {};
+  if (!state.recipes) state.recipes = {};
+  if (!state.exercises) state.exercises = {};
+
+  for (const food of MASTER_FOODS) {
+    if (!state.foods[food.id]) {
+      state.foods[food.id] = food;
+      changed = true;
+    }
+  }
+
+  for (const recipe of MASTER_RECIPES) {
+    if (!state.recipes[recipe.id]) {
+      state.recipes[recipe.id] = recipe;
+      changed = true;
+    }
+  }
+
+  for (const ex of MASTER_EXERCISES) {
+    if (!state.exercises[ex.id]) {
+      state.exercises[ex.id] = ex;
+      changed = true;
+    }
+  }
+
+  return changed;
+}
 
 const defaultChecklist: DailyChecklist = {
   wakeUpOnTime: false,
@@ -143,21 +119,24 @@ export const storageWithFirebase = {
       if (!state.gymRoutine) state.gymRoutine = {};
       if (!state.workoutHistory) state.workoutHistory = {};
       if (!state.records) state.records = {};
-      
-      if (!state.foods || Object.keys(state.foods).length === 0) {
-        state.foods = { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD };
-      }
-      if (!state.exercises || Object.keys(state.exercises).length === 0) {
-        state.exercises = {};
-        for (const ex of INITIAL_SAMPLE_EXERCISES) {
-          state.exercises[ex.id] = ex;
-        }
-      }
+      if (!state.foods) state.foods = {};
+      if (!state.recipes) state.recipes = {};
+      if (!state.exercises) state.exercises = {};
       if (!state.dailyLogs) state.dailyLogs = {};
       if (!state.measurements) state.measurements = {};
 
+      // Seed master libraries (deduplicated)
+      const seeded = seedMasterLibraries(state);
+
       // Ensure profile defaults
-      if (state.profile) {
+      if (!state.profile) {
+        state.profile = { ...DEFAULT_USER_PROFILE };
+      } else {
+        if (!state.profile.currentWeight) state.profile.currentWeight = 82;
+        if (!state.profile.goalWeight) state.profile.goalWeight = 75;
+        if (!state.profile.height) state.profile.height = 168;
+        if (!state.profile.age) state.profile.age = 23;
+        if (!state.profile.currentBodyFat) state.profile.currentBodyFat = 30;
         if (!state.profile.targetCalories) state.profile.targetCalories = DEFAULT_TARGETS.calories;
         if (!state.profile.targetProtein) state.profile.targetProtein = DEFAULT_TARGETS.protein;
         if (!state.profile.targetFats) state.profile.targetFats = DEFAULT_TARGETS.fats;
@@ -169,6 +148,10 @@ export const storageWithFirebase = {
             state.profile.targetFats
           );
         }
+      }
+
+      if (seeded) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       }
 
       return state;
@@ -200,15 +183,10 @@ export const storageWithFirebase = {
     try {
       const remoteState = await firestoreService.getAppState(userId);
       if (remoteState) {
-        // Merge with local defaults
-        if (!remoteState.foods || Object.keys(remoteState.foods).length === 0) {
-          remoteState.foods = { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD };
-        }
-        if (!remoteState.exercises || Object.keys(remoteState.exercises).length === 0) {
-          remoteState.exercises = {};
-          for (const ex of INITIAL_SAMPLE_EXERCISES) {
-            remoteState.exercises[ex.id] = ex;
-          }
+        // Merge with master seed defaults (deduplicated)
+        seedMasterLibraries(remoteState);
+        if (!remoteState.profile) {
+          remoteState.profile = { ...DEFAULT_USER_PROFILE };
         }
         if (!remoteState.dailyLogs) remoteState.dailyLogs = {};
         if (!remoteState.measurements) remoteState.measurements = {};
@@ -349,6 +327,125 @@ export const storageWithFirebase = {
 
     state.foods[id].lastUsedAt = new Date().toISOString();
     this.save(state);
+  },
+
+  // ----------------------------------------------------
+  // RECIPES & INDIAN MEALS BUILDER
+  // ----------------------------------------------------
+  getRecipes(): Recipe[] {
+    const state = this.get();
+    if (!state?.recipes) return MASTER_RECIPES;
+    return Object.values(state.recipes);
+  },
+
+  getRecipeById(id: string): Recipe | undefined {
+    const state = this.get();
+    return state?.recipes?.[id];
+  },
+
+  saveRecipe(recipe: Recipe): Recipe {
+    const state = this.get() || this.createInitialState();
+    if (!state.recipes) state.recipes = {};
+
+    const existing = state.recipes[recipe.id];
+    const finalRecipe: Recipe = {
+      ...recipe,
+      createdAt: existing?.createdAt || recipe.createdAt || new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    };
+
+    state.recipes[finalRecipe.id] = finalRecipe;
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveRecipe(userId, finalRecipe).catch((e) => {
+        console.error('Error syncing recipe to Firebase:', e);
+      });
+    }
+
+    return finalRecipe;
+  },
+
+  deleteRecipe(id: string): boolean {
+    const state = this.get();
+    if (!state?.recipes || !state.recipes[id]) return false;
+
+    delete state.recipes[id];
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.deleteRecipe(userId, id).catch((e) => {
+        console.error('Error deleting recipe from Firebase:', e);
+      });
+    }
+
+    return true;
+  },
+
+  toggleRecipeFavorite(id: string): void {
+    const state = this.get();
+    if (!state?.recipes || !state.recipes[id]) return;
+
+    state.recipes[id].isFavorite = !state.recipes[id].isFavorite;
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveRecipe(userId, state.recipes[id]).catch(console.error);
+    }
+  },
+
+  touchRecipeLastUsed(id: string): void {
+    const state = this.get();
+    if (!state?.recipes || !state.recipes[id]) return;
+
+    state.recipes[id].lastUsedAt = new Date().toISOString();
+    this.save(state);
+  },
+
+  logRecipeToFoodDiary(
+    recipeId: string,
+    servingsToLog: number,
+    mealCategory: MealCategory,
+    date?: string,
+    time?: string
+  ): FoodDiaryEntry | null {
+    const recipe = this.getRecipeById(recipeId);
+    if (!recipe) return null;
+
+    const safeServings = Math.max(0.1, Number(servingsToLog) || 1);
+    const nutrition = {
+      calories: round(recipe.perServingNutrition.calories * safeServings, 1),
+      protein: round(recipe.perServingNutrition.protein * safeServings, 1),
+      carbs: round(recipe.perServingNutrition.carbs * safeServings, 1),
+      fats: round(recipe.perServingNutrition.fats * safeServings, 1),
+    };
+
+    const targetDate = date || getTodayDateString();
+    const entry: FoodDiaryEntry = {
+      id: `food_entry_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      foodId: recipe.id,
+      recipeId: recipe.id,
+      name: `${recipe.name} (${safeServings} serving${safeServings > 1 ? 's' : ''})`,
+      mealCategory,
+      quantity: safeServings,
+      servingUnit: 'serving',
+      baseServingSize: 1,
+      calories: nutrition.calories,
+      protein: nutrition.protein,
+      carbs: nutrition.carbs,
+      fats: nutrition.fats,
+      notes: recipe.notes || `Recipe: ${recipe.name}`,
+      time: time || new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      loggedAt: new Date().toISOString(),
+      date: targetDate,
+    };
+
+    this.addFoodDiaryEntry(targetDate, entry);
+    this.touchRecipeLastUsed(recipe.id);
+    return entry;
   },
 
   // ----------------------------------------------------
@@ -1021,19 +1118,22 @@ export const storageWithFirebase = {
   },
 
   createInitialState(): AppState {
-    return {
-      profile: null,
+    const initialState: AppState = {
+      profile: { ...DEFAULT_USER_PROFILE },
       records: {},
       currentStreak: 0,
       longestStreak: 0,
       mealPlans: {},
       gymRoutine: {},
       workoutHistory: {},
-      foods: { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD },
+      foods: {},
+      recipes: {},
       exercises: {},
       dailyLogs: {},
       measurements: {},
     };
+    seedMasterLibraries(initialState);
+    return initialState;
   },
 };
 
