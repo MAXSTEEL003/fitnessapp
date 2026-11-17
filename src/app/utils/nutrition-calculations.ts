@@ -167,7 +167,7 @@ export function calculateRecipeNutrition(
   perServingNutrition: NutritionValues;
 } {
   const safeServings = Math.max(0.1, Number(servings) || 1);
-  const total = ingredients.reduce(
+  const total = ingredients.reduce<NutritionValues>(
     (acc, ing) => ({
       calories: round(acc.calories + (Number(ing.calories) || 0), 1),
       protein: round(acc.protein + (Number(ing.protein) || 0), 1),
@@ -177,7 +177,7 @@ export function calculateRecipeNutrition(
     { calories: 0, protein: 0, carbs: 0, fats: 0 }
   );
 
-  const perServing = {
+  const perServing: NutritionValues = {
     calories: round(total.calories / safeServings, 1),
     protein: round(total.protein / safeServings, 1),
     carbs: round(total.carbs / safeServings, 1),
@@ -199,7 +199,7 @@ export function calculateDailyNutritionTotals(entries: Array<{
   carbs?: number;
   fats?: number;
 }>): NutritionValues {
-  return entries.reduce(
+  return entries.reduce<NutritionValues>(
     (acc, entry) => ({
       calories: round(acc.calories + (Number(entry.calories) || 0), 1),
       protein: round(acc.protein + (Number(entry.protein) || 0), 1),

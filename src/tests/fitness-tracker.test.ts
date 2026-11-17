@@ -8,13 +8,13 @@ import {
   estimateExerciseCalories, 
   calculateDailyNutritionTotals,
   round 
-} from '../app/utils/nutrition-calculations.ts';
+} from '../app/utils/nutrition-calculations';
 import { 
   getTodayDateString, 
   formatDateToKolkata, 
   shiftDateString, 
   formatDisplayDate 
-} from '../app/utils/date.ts';
+} from '../app/utils/date';
 
 let passedTests = 0;
 let totalTests = 0;
@@ -176,11 +176,11 @@ assert(
 
 console.log('\n--- 6. Testing Master Food & Exercise Libraries ---');
 
-import { MASTER_FOODS, MASTER_RECIPES } from '../config/master-food-library.ts';
-import { MASTER_EXERCISES } from '../config/master-exercise-library.ts';
-import { seedMasterLibraries } from '../config/storage.ts';
-import { calculateMetCalories, calculateRecipeNutrition } from '../app/utils/nutrition-calculations.ts';
-import { AppState } from '../app/types.ts';
+import { MASTER_FOODS, MASTER_RECIPES } from '../config/master-food-library';
+import { MASTER_EXERCISES } from '../config/master-exercise-library';
+import { seedMasterLibraries } from '../config/storage';
+import { calculateMetCalories, calculateRecipeNutrition } from '../app/utils/nutrition-calculations';
+import { AppState } from '../app/types';
 
 // Test 14: Master Food Library Population & Dietary Preferences
 assert(

@@ -2,8 +2,8 @@ import { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 interface InputFieldProps {
-  label: string;
-  type: string;
+  label?: string;
+  type?: string;
   value?: string | number;
   onChange: (value: string) => void;
   icon?: LucideIcon;
@@ -16,7 +16,7 @@ interface InputFieldProps {
 
 export function InputField({ 
   label, 
-  type, 
+  type = "text", 
   value, 
   onChange, 
   icon: Icon, 
@@ -28,9 +28,11 @@ export function InputField({
 }: InputFieldProps) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-        {label}
-      </label>
+      {label && (
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          {label}
+        </label>
+      )}
       <div className="relative">
         {Icon && (
           <Icon className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-gray-400" />

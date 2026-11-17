@@ -280,7 +280,7 @@ export const storage = {
     if (!state) return 0;
     
     return Object.values(state.records).filter(
-      record => record.completionRate === 100
+      (record: DayRecord) => record.completionRate === 100
     ).length;
   },
 

@@ -5,9 +5,9 @@ import { getDatabase, connectDatabaseEmulator } from 'firebase/database';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 
 // Firebase configuration with safe environment fallback for browser and tests
-const env = (typeof import.meta !== 'undefined' && import.meta.env) 
-  ? import.meta.env 
-  : (typeof process !== 'undefined' && process.env ? process.env : {}) as Record<string, string | undefined>;
+const metaEnv = (import.meta as any)?.env;
+const procEnv = typeof process !== 'undefined' ? process.env : undefined;
+const env = (metaEnv || procEnv || {}) as Record<string, string | undefined>;
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || 'demo-api-key',

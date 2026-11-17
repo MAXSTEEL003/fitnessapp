@@ -29,18 +29,21 @@ export function Onboarding() {
   const [formData, setFormData] = useState<Partial<UserProfile>>(
     existingProfile || {
       name: "",
-      startWeight: 80,
-      currentWeight: 80,
-      goalWeight: 70,
-      currentWaist: 85,
-      goalWaist: 78,
+      startWeight: 82,
+      currentWeight: 82,
+      goalWeight: 75,
+      height: 168,
+      age: 23,
+      currentBodyFat: 30,
+      currentWaist: 92,
+      goalWaist: 82,
       startDate: getTodayDateString(),
       targetCalories: 2100,
       targetProtein: 150,
       targetFats: 60,
       targetCarbs: 240,
       targetSteps: 10000,
-      targetWater: 3,
+      targetWater: 3.5,
       wakeUpTime: "06:00",
     }
   );

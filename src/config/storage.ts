@@ -800,7 +800,7 @@ export const storageWithFirebase = {
   getMeasurements(): MeasurementRecord[] {
     const state = this.get();
     if (!state?.measurements) return [];
-    return Object.values(state.measurements).sort((a, b) => a.date.localeCompare(b.date));
+    return (Object.values(state.measurements) as MeasurementRecord[]).sort((a, b) => a.date.localeCompare(b.date));
   },
 
   saveDailyMeasurement(
@@ -1004,7 +1004,7 @@ export const storageWithFirebase = {
   getDaysCompleted(): number {
     const state = this.get();
     if (!state) return 0;
-    return Object.values(state.records).filter((record) => record.completionRate === 100).length;
+    return (Object.values(state.records) as DayRecord[]).filter((record) => record.completionRate === 100).length;
   },
 
   getDaysRemaining(): number {
