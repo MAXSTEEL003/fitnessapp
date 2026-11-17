@@ -1,8 +1,123 @@
-import { AppState, DailyChecklist, DayRecord, UserProfile, DailyMealPlan, Meal, GymRoutine, WorkoutSession } from '../app/types';
+import { 
+  AppState, 
+  DailyChecklist, 
+  DayRecord, 
+  UserProfile, 
+  DailyMealPlan, 
+  Meal, 
+  GymRoutine, 
+  WorkoutSession,
+  FoodLibraryItem,
+  FoodDiaryEntry,
+  ExerciseLibraryItem,
+  ExerciseDiaryEntry,
+  DailyLog,
+  MeasurementRecord,
+  MealCategory
+} from '../app/types';
 import { firestoreService } from './firebase-services';
 import { auth } from './firebase';
+import { getTodayDateString, formatDateToKolkata } from '../app/utils/date';
+import { 
+  calculateFoodNutrition, 
+  calculateDailyNutritionTotals, 
+  calculateRemainingCarbs,
+  round
+} from '../app/utils/nutrition-calculations';
 
 const STORAGE_KEY = 'fitness-shred-data';
+
+export const DEFAULT_TARGETS = {
+  calories: 2100,
+  protein: 150,
+  fats: 60,
+  steps: 10000,
+  carbs: 240, // (2100 - (150*4 + 60*9)) / 4 = 240g
+};
+
+export const INITIAL_SAMPLE_FOOD: FoodLibraryItem = {
+  id: 'food_low_fat_paneer',
+  name: 'Low-fat paneer',
+  category: 'Dairy',
+  servingSize: 100,
+  servingUnit: 'g',
+  calories: 145,
+  protein: 20,
+  carbs: 5,
+  fats: 6,
+  notes: 'Rich in slow-digesting casein protein, ideal for fat loss & muscle retention',
+  isFavorite: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
+
+export const INITIAL_SAMPLE_EXERCISES: ExerciseLibraryItem[] = [
+  {
+    id: 'ex_weight_training',
+    name: 'Weight training',
+    type: 'fixed',
+    category: 'Strength',
+    defaultCalories: 250,
+    defaultDuration: 45,
+    notes: 'Resistance hypertrophy / strength training session',
+    isFavorite: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ex_treadmill',
+    name: 'Treadmill',
+    type: 'fixed',
+    category: 'Cardio',
+    defaultCalories: 100,
+    defaultDuration: 20,
+    notes: 'Incline treadmill walk or jog',
+    isFavorite: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ex_cycling',
+    name: 'Cycling',
+    type: 'fixed',
+    category: 'Cardio',
+    defaultCalories: 150,
+    defaultDuration: 30,
+    notes: 'Stationary or outdoor cycling',
+    isFavorite: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ex_evening_walk',
+    name: 'Evening walk',
+    type: 'fixed',
+    category: 'Cardio',
+    defaultCalories: 100,
+    defaultDuration: 30,
+    notes: 'Brisk evening walk for daily step count',
+    isFavorite: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ex_abs_workout',
+    name: 'Abs workout',
+    type: 'fixed',
+    category: 'Strength',
+    defaultCalories: 60,
+    defaultDuration: 15,
+    notes: 'Core conditioning circuit',
+    isFavorite: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'ex_walking_duration',
+    name: 'Walking (Duration-based)',
+    type: 'duration',
+    category: 'Cardio',
+    defaultDuration: 30,
+    defaultIntensity: 'moderate',
+    notes: 'Estimated ~4 kcal/min depending on pace',
+    isFavorite: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+];
 
 const defaultChecklist: DailyChecklist = {
   wakeUpOnTime: false,
@@ -21,17 +136,39 @@ export const storageWithFirebase = {
       const data = localStorage.getItem(STORAGE_KEY);
       if (!data) return null;
 
-      const state = JSON.parse(data);
+      const state: AppState = JSON.parse(data);
 
-      // Migrate old data to include new properties
-      if (state && !state.mealPlans) {
-        state.mealPlans = {};
+      // Initialize missing structures
+      if (!state.mealPlans) state.mealPlans = {};
+      if (!state.gymRoutine) state.gymRoutine = {};
+      if (!state.workoutHistory) state.workoutHistory = {};
+      if (!state.records) state.records = {};
+      
+      if (!state.foods || Object.keys(state.foods).length === 0) {
+        state.foods = { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD };
       }
-      if (state && !state.gymRoutine) {
-        state.gymRoutine = {};
+      if (!state.exercises || Object.keys(state.exercises).length === 0) {
+        state.exercises = {};
+        for (const ex of INITIAL_SAMPLE_EXERCISES) {
+          state.exercises[ex.id] = ex;
+        }
       }
-      if (state && !state.workoutHistory) {
-        state.workoutHistory = {};
+      if (!state.dailyLogs) state.dailyLogs = {};
+      if (!state.measurements) state.measurements = {};
+
+      // Ensure profile defaults
+      if (state.profile) {
+        if (!state.profile.targetCalories) state.profile.targetCalories = DEFAULT_TARGETS.calories;
+        if (!state.profile.targetProtein) state.profile.targetProtein = DEFAULT_TARGETS.protein;
+        if (!state.profile.targetFats) state.profile.targetFats = DEFAULT_TARGETS.fats;
+        if (!state.profile.targetSteps) state.profile.targetSteps = DEFAULT_TARGETS.steps;
+        if (!state.profile.targetCarbs) {
+          state.profile.targetCarbs = calculateRemainingCarbs(
+            state.profile.targetCalories,
+            state.profile.targetProtein,
+            state.profile.targetFats
+          );
+        }
       }
 
       return state;
@@ -63,6 +200,19 @@ export const storageWithFirebase = {
     try {
       const remoteState = await firestoreService.getAppState(userId);
       if (remoteState) {
+        // Merge with local defaults
+        if (!remoteState.foods || Object.keys(remoteState.foods).length === 0) {
+          remoteState.foods = { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD };
+        }
+        if (!remoteState.exercises || Object.keys(remoteState.exercises).length === 0) {
+          remoteState.exercises = {};
+          for (const ex of INITIAL_SAMPLE_EXERCISES) {
+            remoteState.exercises[ex.id] = ex;
+          }
+        }
+        if (!remoteState.dailyLogs) remoteState.dailyLogs = {};
+        if (!remoteState.measurements) remoteState.measurements = {};
+
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteState));
         return remoteState;
       }
@@ -82,117 +232,604 @@ export const storageWithFirebase = {
       mealPlans: {},
       gymRoutine: {},
       workoutHistory: {},
+      foods: { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD },
+      exercises: {},
+      dailyLogs: {},
+      measurements: {},
     };
-    state.profile = profile;
+
+    // Calculate carbs if missing
+    const targetCalories = profile.targetCalories || DEFAULT_TARGETS.calories;
+    const targetProtein = profile.targetProtein || DEFAULT_TARGETS.protein;
+    const targetFats = profile.targetFats || DEFAULT_TARGETS.fats;
+    const targetCarbs = profile.targetCarbs || calculateRemainingCarbs(targetCalories, targetProtein, targetFats);
+
+    state.profile = {
+      ...profile,
+      targetCalories,
+      targetProtein,
+      targetFats,
+      targetCarbs,
+      targetSteps: profile.targetSteps || DEFAULT_TARGETS.steps,
+    };
+
     this.save(state);
 
-    // Also sync just the profile to Firebase
     const userId = auth.currentUser?.uid;
     if (userId) {
-      firestoreService.saveProfile(userId, profile).catch((error) => {
+      firestoreService.saveProfile(userId, state.profile).catch((error) => {
         console.error('Failed to sync profile with Firebase:', error);
       });
     }
   },
 
-  // Meal Plan Methods
-  getMealPlan(date: string): DailyMealPlan | null {
+  // ----------------------------------------------------
+  // FOOD LIBRARY
+  // ----------------------------------------------------
+  getFoods(): FoodLibraryItem[] {
     const state = this.get();
-    if (!state || !state.mealPlans) return null;
-    return state.mealPlans[date] || null;
+    if (!state?.foods) return [INITIAL_SAMPLE_FOOD];
+    return Object.values(state.foods);
   },
 
-  saveMealPlan(mealPlan: DailyMealPlan): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
+  getFoodById(id: string): FoodLibraryItem | undefined {
+    const state = this.get();
+    return state?.foods?.[id];
+  },
+
+  saveFood(food: FoodLibraryItem): void {
+    const state = this.get() || this.createInitialState();
+    if (!state.foods) state.foods = {};
+
+    state.foods[food.id] = {
+      ...food,
+      calories: Math.max(0, Number(food.calories) || 0),
+      protein: Math.max(0, Number(food.protein) || 0),
+      carbs: Math.max(0, Number(food.carbs) || 0),
+      fats: Math.max(0, Number(food.fats) || 0),
+      servingSize: Math.max(0.1, Number(food.servingSize) || 100),
     };
-    state.mealPlans[mealPlan.date] = mealPlan;
+
     this.save(state);
 
-    // Sync with Firebase
     const userId = auth.currentUser?.uid;
     if (userId) {
-      firestoreService.saveMealPlans(userId, state.mealPlans).catch((error) => {
-        console.error('Failed to sync meal plans with Firebase:', error);
+      firestoreService.saveFoodItem(userId, state.foods[food.id]).catch((e) => {
+        console.error('Error syncing food to Firebase:', e);
       });
     }
   },
 
-  addMeal(date: string, meal: Meal): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
-    };
-
-    const mealPlan = state.mealPlans[date] || {
-      date,
-      meals: [],
-      totalCalories: 0,
-      totalProtein: 0,
-      totalCarbs: 0,
-      totalFats: 0,
-    };
-
-    mealPlan.meals.push(meal);
-    mealPlan.totalCalories += meal.calories;
-    mealPlan.totalProtein += meal.protein;
-    mealPlan.totalCarbs += meal.carbs;
-    mealPlan.totalFats += meal.fats;
-
-    state.mealPlans[date] = mealPlan;
-    this.save(state);
-  },
-
-  deleteMeal(date: string, mealId: string): void {
+  deleteFood(id: string): void {
     const state = this.get();
-    if (!state?.mealPlans[date]) return;
+    if (!state?.foods || !state.foods[id]) return;
 
-    const mealPlan = state.mealPlans[date];
-    const meal = mealPlan.meals.find((m) => m.id === mealId);
+    delete state.foods[id];
+    this.save(state);
 
-    if (meal) {
-      mealPlan.meals = mealPlan.meals.filter((m) => m.id !== mealId);
-      mealPlan.totalCalories -= meal.calories;
-      mealPlan.totalProtein -= meal.protein;
-      mealPlan.totalCarbs -= meal.carbs;
-      mealPlan.totalFats -= meal.fats;
-
-      this.save(state);
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.deleteFoodItem(userId, id).catch((e) => {
+        console.error('Error deleting food from Firebase:', e);
+      });
     }
   },
 
-  // Gym Routine Methods
+  duplicateFood(id: string): FoodLibraryItem | null {
+    const food = this.getFoodById(id);
+    if (!food) return null;
+
+    const newFood: FoodLibraryItem = {
+      ...food,
+      id: `food_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: `${food.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.saveFood(newFood);
+    return newFood;
+  },
+
+  toggleFavoriteFood(id: string): void {
+    const state = this.get();
+    if (!state?.foods || !state.foods[id]) return;
+
+    state.foods[id].isFavorite = !state.foods[id].isFavorite;
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveFoodItem(userId, state.foods[id]).catch(console.error);
+    }
+  },
+
+  touchFoodLastUsed(id: string): void {
+    const state = this.get();
+    if (!state?.foods || !state.foods[id]) return;
+
+    state.foods[id].lastUsedAt = new Date().toISOString();
+    this.save(state);
+  },
+
+  // ----------------------------------------------------
+  // DAILY LOGS & FOOD DIARY
+  // ----------------------------------------------------
+  getDailyLog(date: string): DailyLog {
+    const state = this.get();
+    if (state?.dailyLogs?.[date]) {
+      return state.dailyLogs[date];
+    }
+
+    // Check if legacy mealPlan exists for this date and migrate
+    const legacyMealPlan = state?.mealPlans?.[date];
+    const initialFoodEntries: FoodDiaryEntry[] = legacyMealPlan
+      ? legacyMealPlan.meals.map((m) => ({
+          id: m.id,
+          name: m.name,
+          mealCategory: m.category || 'Lunch',
+          quantity: m.quantity || 1,
+          servingUnit: m.servingUnit || 'serving',
+          baseServingSize: 1,
+          calories: m.calories,
+          protein: m.protein,
+          carbs: m.carbs,
+          fats: m.fats,
+          time: m.time,
+          loggedAt: new Date().toISOString(),
+          date,
+        }))
+      : [];
+
+    return {
+      date,
+      foodEntries: initialFoodEntries,
+      exerciseEntries: [],
+      steps: state?.records?.[date]?.steps || 0,
+      weight: state?.records?.[date]?.weight,
+      waist: state?.records?.[date]?.waist,
+      bodyFat: state?.records?.[date]?.bodyFat,
+      notes: state?.records?.[date]?.notes,
+    };
+  },
+
+  saveDailyLog(dailyLog: DailyLog): void {
+    const state = this.get() || this.createInitialState();
+    if (!state.dailyLogs) state.dailyLogs = {};
+
+    state.dailyLogs[dailyLog.date] = {
+      ...dailyLog,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Keep legacy mealPlans in sync for backwards compatibility
+    if (!state.mealPlans) state.mealPlans = {};
+    const totals = calculateDailyNutritionTotals(dailyLog.foodEntries);
+    state.mealPlans[dailyLog.date] = {
+      date: dailyLog.date,
+      meals: dailyLog.foodEntries.map((fe) => ({
+        id: fe.id,
+        name: fe.name,
+        calories: fe.calories,
+        protein: fe.protein,
+        carbs: fe.carbs,
+        fats: fe.fats,
+        time: fe.time || '12:00',
+        category: fe.mealCategory,
+        quantity: fe.quantity,
+        servingUnit: fe.servingUnit,
+      })),
+      totalCalories: totals.calories,
+      totalProtein: totals.protein,
+      totalCarbs: totals.carbs,
+      totalFats: totals.fats,
+    };
+
+    // Update DayRecord with steps/weight/waist
+    if (!state.records[dailyLog.date]) {
+      state.records[dailyLog.date] = {
+        date: dailyLog.date,
+        checklist: { ...defaultChecklist },
+        completionRate: 0,
+      };
+    }
+    if (dailyLog.weight !== undefined) state.records[dailyLog.date].weight = dailyLog.weight;
+    if (dailyLog.waist !== undefined) state.records[dailyLog.date].waist = dailyLog.waist;
+    if (dailyLog.bodyFat !== undefined) state.records[dailyLog.date].bodyFat = dailyLog.bodyFat;
+    if (dailyLog.steps !== undefined) state.records[dailyLog.date].steps = dailyLog.steps;
+
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveDailyLog(userId, dailyLog.date, dailyLog).catch((e) => {
+        console.error('Error syncing daily log to Firebase:', e);
+      });
+    }
+  },
+
+  addFoodEntry(date: string, entryData: Omit<FoodDiaryEntry, 'id' | 'loggedAt' | 'date'>): FoodDiaryEntry {
+    const dailyLog = this.getDailyLog(date);
+    const newEntry: FoodDiaryEntry = {
+      ...entryData,
+      id: `fe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      loggedAt: new Date().toISOString(),
+      date,
+      calories: round(Math.max(0, Number(entryData.calories) || 0), 1),
+      protein: round(Math.max(0, Number(entryData.protein) || 0), 1),
+      carbs: round(Math.max(0, Number(entryData.carbs) || 0), 1),
+      fats: round(Math.max(0, Number(entryData.fats) || 0), 1),
+      quantity: round(Math.max(0, Number(entryData.quantity) || 1), 1),
+    };
+
+    dailyLog.foodEntries.push(newEntry);
+    this.saveDailyLog(dailyLog);
+
+    if (entryData.foodId) {
+      this.touchFoodLastUsed(entryData.foodId);
+    }
+
+    return newEntry;
+  },
+
+  updateFoodEntry(date: string, entryId: string, updates: Partial<FoodDiaryEntry>): void {
+    const dailyLog = this.getDailyLog(date);
+    const index = dailyLog.foodEntries.findIndex((e) => e.id === entryId);
+    if (index === -1) return;
+
+    dailyLog.foodEntries[index] = {
+      ...dailyLog.foodEntries[index],
+      ...updates,
+      calories: updates.calories !== undefined ? round(Math.max(0, Number(updates.calories)), 1) : dailyLog.foodEntries[index].calories,
+      protein: updates.protein !== undefined ? round(Math.max(0, Number(updates.protein)), 1) : dailyLog.foodEntries[index].protein,
+      carbs: updates.carbs !== undefined ? round(Math.max(0, Number(updates.carbs)), 1) : dailyLog.foodEntries[index].carbs,
+      fats: updates.fats !== undefined ? round(Math.max(0, Number(updates.fats)), 1) : dailyLog.foodEntries[index].fats,
+      quantity: updates.quantity !== undefined ? round(Math.max(0, Number(updates.quantity)), 1) : dailyLog.foodEntries[index].quantity,
+    };
+
+    this.saveDailyLog(dailyLog);
+  },
+
+  deleteFoodEntry(date: string, entryId: string): void {
+    const dailyLog = this.getDailyLog(date);
+    dailyLog.foodEntries = dailyLog.foodEntries.filter((e) => e.id !== entryId);
+    this.saveDailyLog(dailyLog);
+  },
+
+  duplicateFoodEntry(date: string, entryId: string): void {
+    const dailyLog = this.getDailyLog(date);
+    const entry = dailyLog.foodEntries.find((e) => e.id === entryId);
+    if (!entry) return;
+
+    const duplicated: FoodDiaryEntry = {
+      ...entry,
+      id: `fe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      loggedAt: new Date().toISOString(),
+    };
+
+    dailyLog.foodEntries.push(duplicated);
+    this.saveDailyLog(dailyLog);
+  },
+
+  moveFoodEntry(date: string, entryId: string, targetMealCategory: MealCategory): void {
+    const dailyLog = this.getDailyLog(date);
+    const entry = dailyLog.foodEntries.find((e) => e.id === entryId);
+    if (!entry) return;
+
+    entry.mealCategory = targetMealCategory;
+    this.saveDailyLog(dailyLog);
+  },
+
+  // Backwards compatibility for DietPlan & Dashboard
+  getMealPlan(date: string): DailyMealPlan | null {
+    const dailyLog = this.getDailyLog(date);
+    if (dailyLog.foodEntries.length === 0) {
+      const state = this.get();
+      return state?.mealPlans?.[date] || null;
+    }
+
+    const totals = calculateDailyNutritionTotals(dailyLog.foodEntries);
+    return {
+      date,
+      meals: dailyLog.foodEntries.map((fe) => ({
+        id: fe.id,
+        name: fe.name,
+        calories: fe.calories,
+        protein: fe.protein,
+        carbs: fe.carbs,
+        fats: fe.fats,
+        time: fe.time || '12:00',
+        category: fe.mealCategory,
+        quantity: fe.quantity,
+        servingUnit: fe.servingUnit,
+      })),
+      totalCalories: totals.calories,
+      totalProtein: totals.protein,
+      totalCarbs: totals.carbs,
+      totalFats: totals.fats,
+    };
+  },
+
+  addMeal(date: string, meal: Meal): void {
+    this.addFoodEntry(date, {
+      name: meal.name,
+      mealCategory: meal.category || 'Lunch',
+      quantity: meal.quantity || 1,
+      servingUnit: meal.servingUnit || 'serving',
+      baseServingSize: 1,
+      calories: meal.calories,
+      protein: meal.protein,
+      carbs: meal.carbs,
+      fats: meal.fats,
+      time: meal.time,
+    });
+  },
+
+  deleteMeal(date: string, mealId: string): void {
+    this.deleteFoodEntry(date, mealId);
+  },
+
+  // ----------------------------------------------------
+  // EXERCISE LIBRARY & DIARY
+  // ----------------------------------------------------
+  getExercises(): ExerciseLibraryItem[] {
+    const state = this.get();
+    if (!state?.exercises || Object.keys(state.exercises).length === 0) {
+      return INITIAL_SAMPLE_EXERCISES;
+    }
+    return Object.values(state.exercises);
+  },
+
+  getExerciseById(id: string): ExerciseLibraryItem | undefined {
+    const state = this.get();
+    return state?.exercises?.[id];
+  },
+
+  saveExercise(exercise: ExerciseLibraryItem): void {
+    const state = this.get() || this.createInitialState();
+    if (!state.exercises) state.exercises = {};
+
+    state.exercises[exercise.id] = {
+      ...exercise,
+      defaultCalories: exercise.defaultCalories ? Math.max(0, Number(exercise.defaultCalories)) : undefined,
+      defaultDuration: exercise.defaultDuration ? Math.max(0, Number(exercise.defaultDuration)) : undefined,
+    };
+
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveExerciseItem(userId, state.exercises[exercise.id]).catch((e) => {
+        console.error('Error syncing exercise to Firebase:', e);
+      });
+    }
+  },
+
+  deleteExercise(id: string): void {
+    const state = this.get();
+    if (!state?.exercises || !state.exercises[id]) return;
+
+    delete state.exercises[id];
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.deleteExerciseItem(userId, id).catch((e) => {
+        console.error('Error deleting exercise from Firebase:', e);
+      });
+    }
+  },
+
+  duplicateExercise(id: string): ExerciseLibraryItem | null {
+    const ex = this.getExerciseById(id);
+    if (!ex) return null;
+
+    const newEx: ExerciseLibraryItem = {
+      ...ex,
+      id: `ex_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: `${ex.name} (Copy)`,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.saveExercise(newEx);
+    return newEx;
+  },
+
+  toggleFavoriteExercise(id: string): void {
+    const state = this.get();
+    if (!state?.exercises || !state.exercises[id]) return;
+
+    state.exercises[id].isFavorite = !state.exercises[id].isFavorite;
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveExerciseItem(userId, state.exercises[id]).catch(console.error);
+    }
+  },
+
+  touchExerciseLastUsed(id: string): void {
+    const state = this.get();
+    if (!state?.exercises || !state.exercises[id]) return;
+
+    state.exercises[id].lastUsedAt = new Date().toISOString();
+    this.save(state);
+  },
+
+  addExerciseEntry(date: string, entryData: Omit<ExerciseDiaryEntry, 'id' | 'loggedAt' | 'date'>): ExerciseDiaryEntry {
+    const dailyLog = this.getDailyLog(date);
+    const newEntry: ExerciseDiaryEntry = {
+      ...entryData,
+      id: `ee_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      loggedAt: new Date().toISOString(),
+      date,
+      calories: Math.max(0, Number(entryData.calories) || 0),
+      duration: entryData.duration ? Math.max(0, Number(entryData.duration)) : undefined,
+    };
+
+    dailyLog.exerciseEntries.push(newEntry);
+    this.saveDailyLog(dailyLog);
+
+    if (entryData.exerciseId) {
+      this.touchExerciseLastUsed(entryData.exerciseId);
+    }
+
+    return newEntry;
+  },
+
+  updateExerciseEntry(date: string, entryId: string, updates: Partial<ExerciseDiaryEntry>): void {
+    const dailyLog = this.getDailyLog(date);
+    const index = dailyLog.exerciseEntries.findIndex((e) => e.id === entryId);
+    if (index === -1) return;
+
+    dailyLog.exerciseEntries[index] = {
+      ...dailyLog.exerciseEntries[index],
+      ...updates,
+      calories: updates.calories !== undefined ? Math.max(0, Number(updates.calories)) : dailyLog.exerciseEntries[index].calories,
+      duration: updates.duration !== undefined ? Math.max(0, Number(updates.duration)) : dailyLog.exerciseEntries[index].duration,
+    };
+
+    this.saveDailyLog(dailyLog);
+  },
+
+  deleteExerciseEntry(date: string, entryId: string): void {
+    const dailyLog = this.getDailyLog(date);
+    dailyLog.exerciseEntries = dailyLog.exerciseEntries.filter((e) => e.id !== entryId);
+    this.saveDailyLog(dailyLog);
+  },
+
+  // ----------------------------------------------------
+  // MEASUREMENTS & TRACKING
+  // ----------------------------------------------------
+  getMeasurements(): MeasurementRecord[] {
+    const state = this.get();
+    if (!state?.measurements) return [];
+    return Object.values(state.measurements).sort((a, b) => a.date.localeCompare(b.date));
+  },
+
+  saveDailyMeasurement(
+    date: string, 
+    data: { weight?: number; waist?: number; bodyFat?: number; steps?: number; notes?: string }
+  ): void {
+    const state = this.get() || this.createInitialState();
+    if (!state.measurements) state.measurements = {};
+    if (!state.dailyLogs) state.dailyLogs = {};
+
+    const id = `meas_${date}`;
+    const measurement: MeasurementRecord = {
+      id,
+      date,
+      weight: data.weight !== undefined && data.weight > 0 ? Number(data.weight) : undefined,
+      waist: data.waist !== undefined && data.waist > 0 ? Number(data.waist) : undefined,
+      bodyFat: data.bodyFat !== undefined && data.bodyFat > 0 ? Number(data.bodyFat) : undefined,
+      steps: data.steps !== undefined && data.steps >= 0 ? Number(data.steps) : undefined,
+      notes: data.notes,
+      loggedAt: new Date().toISOString(),
+    };
+
+    state.measurements[id] = measurement;
+
+    // Update DailyLog
+    const dailyLog = this.getDailyLog(date);
+    if (measurement.weight !== undefined) dailyLog.weight = measurement.weight;
+    if (measurement.waist !== undefined) dailyLog.waist = measurement.waist;
+    if (measurement.bodyFat !== undefined) dailyLog.bodyFat = measurement.bodyFat;
+    if (measurement.steps !== undefined) dailyLog.steps = measurement.steps;
+    if (measurement.notes) dailyLog.notes = measurement.notes;
+    state.dailyLogs[date] = dailyLog;
+
+    // Update DayRecord
+    if (!state.records[date]) {
+      state.records[date] = {
+        date,
+        checklist: { ...defaultChecklist },
+        completionRate: 0,
+      };
+    }
+    if (measurement.weight !== undefined) state.records[date].weight = measurement.weight;
+    if (measurement.waist !== undefined) state.records[date].waist = measurement.waist;
+    if (measurement.bodyFat !== undefined) state.records[date].bodyFat = measurement.bodyFat;
+    if (measurement.steps !== undefined) state.records[date].steps = measurement.steps;
+
+    // Update current profile weight/waist/bodyFat if it's the latest measurement
+    if (state.profile) {
+      if (measurement.weight !== undefined) state.profile.currentWeight = measurement.weight;
+      if (measurement.waist !== undefined) state.profile.currentWaist = measurement.waist;
+      if (measurement.bodyFat !== undefined) state.profile.currentBodyFat = measurement.bodyFat;
+    }
+
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveMeasurement(userId, measurement).catch((e) => {
+        console.error('Error syncing measurement to Firebase:', e);
+      });
+      if (state.profile) {
+        firestoreService.saveProfile(userId, state.profile).catch(console.error);
+      }
+    }
+  },
+
+  // ----------------------------------------------------
+  // DAILY TOTALS & STATS
+  // ----------------------------------------------------
+  getDailySummary(date: string) {
+    const state = this.get();
+    const dailyLog = this.getDailyLog(date);
+    const profile = state?.profile;
+
+    const targetCalories = profile?.targetCalories || DEFAULT_TARGETS.calories;
+    const targetProtein = profile?.targetProtein || DEFAULT_TARGETS.protein;
+    const targetFats = profile?.targetFats || DEFAULT_TARGETS.fats;
+    const targetCarbs = profile?.targetCarbs || calculateRemainingCarbs(targetCalories, targetProtein, targetFats);
+    const targetSteps = profile?.targetSteps || DEFAULT_TARGETS.steps;
+
+    const nutrition = calculateDailyNutritionTotals(dailyLog.foodEntries);
+
+    const exerciseCalories = dailyLog.exerciseEntries.reduce((sum, e) => sum + (e.calories || 0), 0);
+    const exerciseDuration = dailyLog.exerciseEntries.reduce((sum, e) => sum + (e.duration || 0), 0);
+    const exerciseSessions = dailyLog.exerciseEntries.length;
+
+    const steps = dailyLog.steps || state?.records?.[date]?.steps || 0;
+
+    return {
+      date,
+      // Nutrition
+      consumedCalories: nutrition.calories,
+      targetCalories,
+      remainingCalories: Math.max(0, targetCalories - nutrition.calories),
+      consumedProtein: nutrition.protein,
+      targetProtein,
+      consumedCarbs: nutrition.carbs,
+      targetCarbs,
+      consumedFats: nutrition.fats,
+      targetFats,
+      // Activity
+      steps,
+      targetSteps,
+      exerciseSessions,
+      exerciseCalories,
+      exerciseDuration,
+      // Measurements
+      weight: dailyLog.weight || state?.records?.[date]?.weight,
+      waist: dailyLog.waist || state?.records?.[date]?.waist,
+      bodyFat: dailyLog.bodyFat || state?.records?.[date]?.bodyFat,
+    };
+  },
+
+  // ----------------------------------------------------
+  // GYM ROUTINE & WORKOUT SESSIONS
+  // ----------------------------------------------------
   getGymRoutine(): GymRoutine {
     const state = this.get();
     return state?.gymRoutine || {};
   },
 
   saveWorkoutForDay(day: string, workout: WorkoutSession): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
-    };
-
+    const state = this.get() || this.createInitialState();
     state.gymRoutine[day] = workout;
     this.save(state);
 
-    // Sync with Firebase
     const userId = auth.currentUser?.uid;
     if (userId) {
       firestoreService.saveGymRoutine(userId, state.gymRoutine).catch((error) => {
@@ -201,17 +838,38 @@ export const storageWithFirebase = {
     }
   },
 
-  // Daily Record Methods
+  getWorkoutHistory(date: string): WorkoutSession | undefined {
+    const state = this.get();
+    return state?.workoutHistory?.[date];
+  },
+
+  saveWorkoutHistory(date: string, workout: WorkoutSession): void {
+    const state = this.get() || this.createInitialState();
+    state.workoutHistory[date] = { ...workout, date, completed: true };
+    this.save(state);
+
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      firestoreService.saveWorkoutHistory(userId, state.workoutHistory).catch((error) => {
+        console.error('Failed to sync workout history with Firebase:', error);
+      });
+    }
+  },
+
+  saveWorkoutHistoryForDate(date: string, workout: WorkoutSession): void {
+    this.saveWorkoutHistory(date, workout);
+  },
+
+  getWorkoutForDay(day: string): WorkoutSession | null {
+    const routine = this.getGymRoutine();
+    return routine[day] || null;
+  },
+
+  // ----------------------------------------------------
+  // DAILY CHECKLIST & STREAKS
+  // ----------------------------------------------------
   recordDay(date: string, checklist: DailyChecklist, completionRate: number, weight?: number, notes?: string): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
-    };
+    const state = this.get() || this.createInitialState();
 
     const dayRecord: DayRecord = {
       date,
@@ -222,28 +880,12 @@ export const storageWithFirebase = {
     };
 
     state.records[date] = dayRecord;
-
-    // Update streaks
-    const previousDate = new Date(new Date(date).getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    if (completionRate === 100) {
-      if (state.records[previousDate]?.completionRate === 100) {
-        state.currentStreak += 1;
-      } else {
-        state.currentStreak = 1;
-      }
-      state.longestStreak = Math.max(state.longestStreak, state.currentStreak);
-    } else {
-      state.currentStreak = 0;
-    }
-
+    this.updateStreaks(state);
     this.save(state);
 
-    // Sync with Firebase
     const userId = auth.currentUser?.uid;
     if (userId) {
-      firestoreService.saveDailyRecords(userId, state.records).catch((error) => {
-        console.error('Failed to sync daily records with Firebase:', error);
-      });
+      firestoreService.saveDailyRecords(userId, state.records).catch(console.error);
     }
   },
 
@@ -252,57 +894,23 @@ export const storageWithFirebase = {
     return state?.records[date];
   },
 
-  // Workout History
-  saveWorkout(date: string, workout: WorkoutSession): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
-    };
-
-    state.workoutHistory[date] = workout;
-    this.save(state);
-
-    // Sync with Firebase
-    const userId = auth.currentUser?.uid;
-    if (userId) {
-      firestoreService.saveWorkoutHistory(userId, state.workoutHistory).catch((error) => {
-        console.error('Failed to sync workout history with Firebase:', error);
-      });
-    }
-  },
-
-  getWorkoutHistory(date: string): WorkoutSession | undefined {
-    const state = this.get();
-    return state?.workoutHistory[date];
-  },
-
-  // Streak Methods
   getCurrentStreak(): number {
     const state = this.get();
-    if (!state) return 0;
-    return state.currentStreak;
+    return state?.currentStreak || 0;
   },
 
   getLongestStreak(): number {
     const state = this.get();
-    if (!state) return 0;
-    return state.longestStreak;
+    return state?.longestStreak || 0;
   },
 
   getDaysCompleted(): number {
     const state = this.get();
     if (!state) return 0;
-
     return Object.values(state.records).filter((record) => record.completionRate === 100).length;
   },
 
   getDaysRemaining(): number {
-    // No limit on days remaining - program can be extended indefinitely
     return Infinity;
   },
 
@@ -320,7 +928,7 @@ export const storageWithFirebase = {
 
   getTodayRecord(): DayRecord {
     const state = this.get();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
 
     if (state?.records[today]) {
       return state.records[today];
@@ -334,16 +942,8 @@ export const storageWithFirebase = {
   },
 
   updateTodayChecklist(checklist: DailyChecklist): void {
-    const state = this.get() || {
-      profile: null,
-      records: {},
-      currentStreak: 0,
-      longestStreak: 0,
-      mealPlans: {},
-      gymRoutine: {},
-      workoutHistory: {},
-    };
-    const today = new Date().toISOString().split('T')[0];
+    const state = this.get() || this.createInitialState();
+    const today = getTodayDateString();
 
     const completionRate = this.calculateCompletionRate(checklist);
 
@@ -353,17 +953,12 @@ export const storageWithFirebase = {
       completionRate,
     };
 
-    // Update streaks
     this.updateStreaks(state);
-
     this.save(state);
 
-    // Sync with Firebase
     const userId = auth.currentUser?.uid;
     if (userId) {
-      firestoreService.saveDailyRecords(userId, state.records).catch((error) => {
-        console.error('Failed to sync daily records with Firebase:', error);
-      });
+      firestoreService.saveDailyRecords(userId, state.records).catch(console.error);
     }
   },
 
@@ -371,7 +966,7 @@ export const storageWithFirebase = {
     const state = this.get();
     if (!state) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
     if (state.records[today]) {
       state.records[today].weight = weight;
       this.save(state);
@@ -390,7 +985,7 @@ export const storageWithFirebase = {
     let tempStreak = 0;
     let longestStreak = 0;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
 
     for (let i = sortedDates.length - 1; i >= 0; i--) {
       const date = sortedDates[i];
@@ -425,8 +1020,8 @@ export const storageWithFirebase = {
     return diffDays === 1;
   },
 
-  saveWorkoutHistoryForDate(date: string, workout: WorkoutSession): void {
-    const state = this.get() || {
+  createInitialState(): AppState {
+    return {
       profile: null,
       records: {},
       currentStreak: 0,
@@ -434,25 +1029,12 @@ export const storageWithFirebase = {
       mealPlans: {},
       gymRoutine: {},
       workoutHistory: {},
+      foods: { [INITIAL_SAMPLE_FOOD.id]: INITIAL_SAMPLE_FOOD },
+      exercises: {},
+      dailyLogs: {},
+      measurements: {},
     };
-
-    state.workoutHistory[date] = { ...workout, completed: true };
-    this.save(state);
-
-    // Sync with Firebase
-    const userId = auth.currentUser?.uid;
-    if (userId) {
-      firestoreService.saveWorkoutHistory(userId, state.workoutHistory).catch((error) => {
-        console.error('Failed to sync workout history with Firebase:', error);
-      });
-    }
-  },
-
-  getWorkoutForDay(day: string): WorkoutSession | null {
-    const routine = this.getGymRoutine();
-    return routine[day] || null;
   },
 };
 
-// For backwards compatibility, export as default
 export const storage = storageWithFirebase;

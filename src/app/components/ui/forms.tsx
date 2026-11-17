@@ -8,6 +8,8 @@ interface InputFieldProps {
   onChange: (value: string) => void;
   icon?: LucideIcon;
   step?: string;
+  min?: string | number;
+  max?: string | number;
   placeholder?: string;
   required?: boolean;
 }
@@ -19,6 +21,8 @@ export function InputField({
   onChange, 
   icon: Icon, 
   step,
+  min,
+  max,
   placeholder,
   required = false 
 }: InputFieldProps) {
@@ -35,6 +39,8 @@ export function InputField({
           type={type}
           value={value}
           step={step}
+          min={min}
+          max={max}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           className={`
@@ -57,6 +63,8 @@ interface GlassInputFieldProps {
   onChange: (value: string) => void;
   icon?: LucideIcon;
   step?: string;
+  min?: string | number;
+  max?: string | number;
   placeholder?: string;
   required?: boolean;
 }
@@ -68,6 +76,8 @@ export function GlassInputField({
   onChange, 
   icon: Icon, 
   step,
+  min,
+  max,
   placeholder,
   required = false 
 }: GlassInputFieldProps) {
@@ -84,6 +94,8 @@ export function GlassInputField({
           type={type}
           value={value}
           step={step}
+          min={min}
+          max={max}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
           className={`

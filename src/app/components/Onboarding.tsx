@@ -5,7 +5,8 @@ import { storage } from "../../config/storage";
 import { UserProfile } from "../types";
 import { Button } from "./ui/buttons";
 import { GlassInputField } from "./ui/forms";
-import { Card } from "./ui/cards";
+import { getTodayDateString } from "../utils/date";
+import { calculateRemainingCarbs } from "../utils/nutrition-calculations";
 import { 
   Scale, 
   Target, 
@@ -16,7 +17,9 @@ import {
   Clock,
   ChevronRight,
   Trash2,
-  User as UserIcon
+  User as UserIcon,
+  Flame,
+  Ruler
 } from "lucide-react";
 
 export function Onboarding() {
@@ -29,13 +32,29 @@ export function Onboarding() {
       startWeight: 80,
       currentWeight: 80,
       goalWeight: 70,
-      startDate: new Date().toISOString().split('T')[0],
-      targetSteps: 13000,
+      currentWaist: 85,
+      goalWaist: 78,
+      startDate: getTodayDateString(),
+      targetCalories: 2100,
       targetProtein: 150,
+      targetFats: 60,
+      targetCarbs: 240,
+      targetSteps: 10000,
       targetWater: 3,
       wakeUpTime: "06:00",
     }
   );
+
+  const handleCaloriesOrMacroChange = (cals: number, prot: number, fats: number) => {
+    const calculatedCarbs = calculateRemainingCarbs(cals, prot, fats);
+    setFormData((prev) => ({
+      ...prev,
+      targetCalories: cals,
+      targetProtein: prot,
+      targetFats: fats,
+      targetCarbs: calculatedCarbs,
+    }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +64,29 @@ export function Onboarding() {
       return;
     }
 
-    storage.updateProfile(formData as UserProfile);
+    const targetCalories = formData.targetCalories || 2100;
+    const targetProtein = formData.targetProtein || 150;
+    const targetFats = formData.targetFats || 60;
+    const targetCarbs = formData.targetCarbs || calculateRemainingCarbs(targetCalories, targetProtein, targetFats);
+
+    const fullProfile: UserProfile = {
+      name: formData.name,
+      startWeight: Number(formData.startWeight),
+      currentWeight: Number(formData.currentWeight),
+      goalWeight: Number(formData.goalWeight),
+      currentWaist: formData.currentWaist ? Number(formData.currentWaist) : undefined,
+      goalWaist: formData.goalWaist ? Number(formData.goalWaist) : undefined,
+      startDate: formData.startDate || getTodayDateString(),
+      targetCalories,
+      targetProtein,
+      targetFats,
+      targetCarbs,
+      targetSteps: Number(formData.targetSteps) || 10000,
+      targetWater: Number(formData.targetWater) || 3,
+      wakeUpTime: formData.wakeUpTime || "06:00",
+    };
+
+    storage.updateProfile(fullProfile);
     navigate("/");
   };
 
@@ -57,7 +98,7 @@ export function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 dark:from-blue-800 dark:to-black px-6 py-12">
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 dark:from-blue-900 dark:to-black px-6 py-12">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -68,12 +109,12 @@ export function Onboarding() {
             initial={{ scale: 0.9 }}
             animate={{ scale: 1 }}
             transition={{ type: "spring" }}
-            className="text-4xl font-bold text-white mb-2"
+            className="text-4xl font-extrabold text-white mb-2"
           >
             Fitness Shred
           </motion.h1>
-          <p className="text-blue-100">
-            {existingProfile ? "Update your profile" : "Let's get started with your journey"}
+          <p className="text-blue-100 text-sm">
+            {existingProfile ? "Update your personal profile & targets" : "Set up your personal fat loss & muscle retention goals"}
           </p>
         </div>
 
@@ -83,9 +124,9 @@ export function Onboarding() {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.05 }}
-            className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl border border-white/20"
+            className="bg-white/10 backdrop-blur-lg p-5 rounded-2xl border border-white/20"
           >
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
               <UserIcon className="size-5" />
               Your Name
             </h3>
@@ -99,108 +140,159 @@ export function Onboarding() {
             />
           </motion.div>
 
-          {/* Weight Section */}
+          {/* Body Measurements Section */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl border border-white/20"
+            className="bg-white/10 backdrop-blur-lg p-5 rounded-2xl border border-white/20"
           >
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
               <Scale className="size-5" />
-              Weight Goals
+              Weight & Waist Goals
             </h3>
-            <div className="space-y-4">
-              <GlassInputField
-                label="Start Weight (kg)"
-                type="number"
-                value={formData.startWeight}
-                onChange={(value) => setFormData({ ...formData, startWeight: Number(value) })}
-                icon={Scale}
-                required
-              />
-              <GlassInputField
-                label="Current Weight (kg)"
-                type="number"
-                value={formData.currentWeight}
-                onChange={(value) => setFormData({ ...formData, currentWeight: Number(value) })}
-                icon={Scale}
-                required
-              />
-              <GlassInputField
-                label="Goal Weight (kg)"
-                type="number"
-                value={formData.goalWeight}
-                onChange={(value) => setFormData({ ...formData, goalWeight: Number(value) })}
-                icon={Target}
-                required
-              />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <GlassInputField
+                  label="Start Weight (kg)"
+                  type="number"
+                  step="0.1"
+                  value={formData.startWeight}
+                  onChange={(value) => setFormData({ ...formData, startWeight: Number(value) })}
+                  icon={Scale}
+                  required
+                />
+                <GlassInputField
+                  label="Current Weight (kg)"
+                  type="number"
+                  step="0.1"
+                  value={formData.currentWeight}
+                  onChange={(value) => setFormData({ ...formData, currentWeight: Number(value) })}
+                  icon={Scale}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <GlassInputField
+                  label="Goal Weight (kg)"
+                  type="number"
+                  step="0.1"
+                  value={formData.goalWeight}
+                  onChange={(value) => setFormData({ ...formData, goalWeight: Number(value) })}
+                  icon={Target}
+                  required
+                />
+                <GlassInputField
+                  label="Waist Size (cm)"
+                  type="number"
+                  step="0.5"
+                  value={formData.currentWaist}
+                  onChange={(value) => setFormData({ ...formData, currentWaist: Number(value) })}
+                  icon={Ruler}
+                />
+              </div>
             </div>
           </motion.div>
 
-          {/* Start Date */}
+          {/* Daily Calorie & Macro Targets */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl border border-white/20"
+            className="bg-white/10 backdrop-blur-lg p-5 rounded-2xl border border-white/20"
           >
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <Calendar className="size-5" />
-              Start Date
+            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
+              <Flame className="size-5" />
+              Nutrition Targets (Fat Loss & Muscle Retention)
             </h3>
-            <GlassInputField
-              label="Program Start Date"
-              type="date"
-              value={formData.startDate}
-              onChange={(value) => setFormData({ ...formData, startDate: value })}
-              icon={Calendar}
-              required
-            />
+            <div className="space-y-3">
+              <GlassInputField
+                label="Daily Calorie Target (kcal)"
+                type="number"
+                value={formData.targetCalories || 2100}
+                onChange={(value) => handleCaloriesOrMacroChange(Number(value), formData.targetProtein || 150, formData.targetFats || 60)}
+                icon={Flame}
+                required
+              />
+
+              <div className="grid grid-cols-3 gap-2">
+                <GlassInputField
+                  label="Protein (g)"
+                  type="number"
+                  value={formData.targetProtein || 150}
+                  onChange={(value) => handleCaloriesOrMacroChange(formData.targetCalories || 2100, Number(value), formData.targetFats || 60)}
+                  icon={Beef}
+                  required
+                />
+                <GlassInputField
+                  label="Fats (g)"
+                  type="number"
+                  value={formData.targetFats || 60}
+                  onChange={(value) => handleCaloriesOrMacroChange(formData.targetCalories || 2100, formData.targetProtein || 150, Number(value))}
+                  required
+                />
+                <GlassInputField
+                  label="Carbs (g)"
+                  type="number"
+                  value={formData.targetCarbs || 240}
+                  onChange={(value) => setFormData({ ...formData, targetCarbs: Number(value) })}
+                  required
+                />
+              </div>
+            </div>
           </motion.div>
 
-          {/* Daily Targets */}
+          {/* Activity Targets */}
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-white/10 backdrop-blur-lg p-6 rounded-2xl border border-white/20"
+            className="bg-white/10 backdrop-blur-lg p-5 rounded-2xl border border-white/20"
           >
-            <h3 className="text-lg font-bold text-white mb-4">Daily Targets</h3>
-            <div className="space-y-4">
-              <GlassInputField
-                label="Steps Goal"
-                type="number"
-                value={formData.targetSteps}
-                onChange={(value) => setFormData({ ...formData, targetSteps: Number(value) })}
-                icon={Footprints}
-                required
-              />
-              <GlassInputField
-                label="Protein (grams)"
-                type="number"
-                value={formData.targetProtein}
-                onChange={(value) => setFormData({ ...formData, targetProtein: Number(value) })}
-                icon={Beef}
-                required
-              />
-              <GlassInputField
-                label="Water (liters)"
-                type="number"
-                step="0.5"
-                value={formData.targetWater}
-                onChange={(value) => setFormData({ ...formData, targetWater: Number(value) })}
-                icon={Droplets}
-                required
-              />
-              <GlassInputField
-                label="Wake Up Time"
-                type="time"
-                value={formData.wakeUpTime}
-                onChange={(value) => setFormData({ ...formData, wakeUpTime: value })}
-                icon={Clock}
-                required
-              />
+            <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
+              <Footprints className="size-5" />
+              Activity & Hydration
+            </h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <GlassInputField
+                  label="Daily Steps Goal"
+                  type="number"
+                  value={formData.targetSteps || 10000}
+                  onChange={(value) => setFormData({ ...formData, targetSteps: Number(value) })}
+                  icon={Footprints}
+                  required
+                />
+                <GlassInputField
+                  label="Water Goal (L)"
+                  type="number"
+                  step="0.5"
+                  value={formData.targetWater || 3}
+                  onChange={(value) => setFormData({ ...formData, targetWater: Number(value) })}
+                  icon={Droplets}
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <GlassInputField
+                  label="Start Date"
+                  type="date"
+                  value={formData.startDate}
+                  onChange={(value) => setFormData({ ...formData, startDate: value })}
+                  icon={Calendar}
+                  required
+                />
+                <GlassInputField
+                  label="Wake Up Time"
+                  type="time"
+                  value={formData.wakeUpTime || "06:00"}
+                  onChange={(value) => setFormData({ ...formData, wakeUpTime: value })}
+                  icon={Clock}
+                  required
+                />
+              </div>
             </div>
           </motion.div>
 
@@ -218,7 +310,7 @@ export function Onboarding() {
               iconPosition="right"
               fullWidth
             >
-              {existingProfile ? "Update Profile" : "Start My Journey"}
+              {existingProfile ? "Save & Update Profile" : "Start Tracking"}
             </Button>
           </motion.div>
 

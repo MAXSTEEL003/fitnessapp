@@ -2,11 +2,11 @@ import { useNavigate, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { IconButton } from "./buttons";
-import { Home, UtensilsCrossed, Dumbbell, Settings as SettingsIcon, Moon, Sun, LucideIcon } from "lucide-react";
+import { Home, UtensilsCrossed, Dumbbell, TrendingUp, Settings as SettingsIcon, Moon, Sun, LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 interface NavItem {
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   path: string;
 }
@@ -15,6 +15,7 @@ const navItems: NavItem[] = [
   { icon: Home, label: "Home", path: "/" },
   { icon: UtensilsCrossed, label: "Diet", path: "/diet" },
   { icon: Dumbbell, label: "Gym", path: "/gym" },
+  { icon: TrendingUp, label: "Progress", path: "/history" },
   { icon: SettingsIcon, label: "Settings", path: "/settings" },
 ];
 
